@@ -1,0 +1,6 @@
+pandas
+openpyxl
+# torch  (待解开)
+# transformers (待解开)
+# pillow (待解开)
+# clip (待解开)
