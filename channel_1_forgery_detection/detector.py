@@ -125,12 +125,17 @@ class ForgeryDetector:
         根据文件名关键词模拟不同的检测结果
         
         对应 Sample_Type 分类:
-          - Tamper_AIGC: aigc_, inpaint, eraser, remove, magic
-          - Tamper_PS: ps_, splicing, copymove, clone, tamper, fake
+          - Tamper_AIGC: aigc_, ai_00, inpaint, eraser, remove, magic
+          - Tamper_PS: ps_, ps_00, type2_ps, splicing, copymove, clone, tamper, fake
           - Real: real_, 或不含上述关键词
         
         对应 Tamper_Method:
           - MagicEraser, Photoshop_Splicing, Photoshop_Clone 等
+        
+        命名规范示例:
+          - ps_001.jpg, ps_002.jpg (传统PS篡改)
+          - ai_001.jpg, ai_002.jpg (AIGC消除)
+          - type2_ps_001.jpg, type2_ai_001.jpg (Type2物理篡改)
         """
         file_name = image_path.lower()
         file_basename = os.path.basename(file_name)
@@ -140,18 +145,18 @@ class ForgeryDetector:
         # 对应 Sample_Type = "Tamper_AIGC", GT_Ch1_Tamper = 1
         # Tamper_Method: MagicEraser, AI_Inpaint 等
         # -----------------------------------------------------------------
-        aigc_keywords = ["aigc", "inpaint", "eraser", "remove", "magic"]
+        aigc_keywords = ["aigc", "ai_00", "type2_ai", "inpaint", "eraser", "remove", "magic", "cleanup"]
         if any(kw in file_name for kw in aigc_keywords):
             # 模拟高置信度检测 (0.88 ~ 0.98)
             score = round(random.uniform(0.88, 0.98), 4)
             
             # 细分 AIGC 篡改类型
-            if "eraser" in file_name or "remove" in file_name:
+            if "eraser" in file_name or "remove" in file_name or "cleanup" in file_name:
                 method = "AI Object Removal (Eraser)"
             elif "inpaint" in file_name:
                 method = "AI Inpainting (Texture Synthesis)"
             else:
-                method = "AIGC Modification"
+                method = "AIGC Modification (Smooth Region Detected)"
             
             msg = f"[DETECTED] {method} - Noise anomaly in smooth regions"
             print(f"[Ch1-Result] Score={score:.4f}, Type=AIGC")
@@ -162,7 +167,7 @@ class ForgeryDetector:
         # 对应 Sample_Type = "Tamper_PS", GT_Ch1_Tamper = 1
         # Tamper_Method: Photoshop_Splicing, Photoshop_Clone 等
         # -----------------------------------------------------------------
-        ps_keywords = ["ps_", "splicing", "copymove", "clone", "tamper", "fake"]
+        ps_keywords = ["ps_", "ps_00", "type2_ps", "splicing", "copymove", "clone", "tamper", "fake"]
         if any(kw in file_name for kw in ps_keywords):
             # 模拟高置信度检测 (0.85 ~ 0.96)
             score = round(random.uniform(0.85, 0.96), 4)
@@ -173,7 +178,7 @@ class ForgeryDetector:
             elif "copymove" in file_name or "clone" in file_name:
                 method = "Copy-Move Forgery (Duplicated regions)"
             else:
-                method = "Traditional PS Manipulation"
+                method = "Traditional PS Manipulation (Edge artifacts)"
             
             msg = f"[DETECTED] {method} - Edge artifacts detected"
             print(f"[Ch1-Result] Score={score:.4f}, Type=PS")
