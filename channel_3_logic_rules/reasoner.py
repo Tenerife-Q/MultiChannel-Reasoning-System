@@ -79,459 +79,200 @@ import pandas as pd
 # import torch  # TODO: 待模型集成时解开注释
 
 
-class LogicReasoner:
-    """
-    逻辑推理引擎 (VLM-CoT 架构)
-    处理CLIP无法识别的细粒度属性冲突与常识谬误
-    """
-    
-    def __init__(self):
-        """
-        初始化逻辑推理引擎
-        
-        架构说明:
-          - 理想架构: Image -> VLM -> Caption -> LLM -> Conflict Check
-          - Demo实现: Image -> (Query Excel Meta) -> Mock Caption -> Rule Check
-        
-        此实现采用 Demo实现 策略，以确保演示时的响应速度和绝对准确率。
-        
-        与 Channel 2 (CLIP) 的区分:
-          - Ch2 (语义): 图和文主题是否一致 (Topic Alignment)
-          - Ch3 (逻辑): 图和文在细节属性上是否矛盾 (Fact Verification)
-          - Type 4 样本设计: 骗过 Ch2 (主题一致), 被 Ch3 抓获 (属性冲突)
-        """
-        print("[Ch3-Init] Initializing Logic Reasoning Engine (VLM-CoT)...")
-        print("[Ch3-Init] Mode: Mock (Excel Meta as Oracle)")
-        
-        # =====================================================================
-        # 时间关键词库 (Temporal Keywords)
-        # 用于检测: 图(Day) vs 文(Night) 或 图(Night) vs 文(Day)
-        # =====================================================================
-        # 统一使用小写词库，后续匹配基于 lower 文本避免大小写问题
-        self.night_keywords = [
-            "深夜", "凌晨", "漆黑", "晚间", "通宵", "月色", "月光", "夜幕", "夜晚", "星空",
-            "midnight", "night", "evening", "dark", "moon", "moonlight"
-        ]
-        self.day_keywords = [
-            "阳光", "正午", "白天", "烈日", "上午", "下午", "中午", "清晨", "朝阳",
-            "noon", "daylight", "morning", "daytime", "sunny", "afternoon"
-        ]
-        
-        # =====================================================================
-        # 天气关键词库 (Weather Keywords)
-        # 用于检测: 图(Sunny) vs 文(Storm/Rain/Snow)
-        # =====================================================================
-        self.storm_keywords = [
-            "暴雨", "洪水", "台风", "积水", "雷电", "狂风", "暴风", "大雨", "倾盆大雨", "风暴",
-            "storm", "rain", "flood", "typhoon", "hurricane", "heavy rain", "rainstorm"
-        ]
-        self.snow_keywords = [
-            "大雪", "暴雪", "寒冬", "冰雪", "雪花", "白雪皑皑", "鹅毛大雪",
-            "snow", "blizzard", "snowstorm", "winter", "freezing", "frost"
-        ]
-        self.sunny_keywords = [
-            "晴朗", "阳光明媚", "蓝天", "万里无云", "艳阳高照", "晴空万里",
-            "sunny", "clear sky", "sunshine", "bright", "clear"
-        ]
-        
-        # =====================================================================
-        # 季节/温度关键词库 (Season/Temperature Keywords)
-        # 用于检测: 图(夏天短袖) vs 文(大雪纷飞) 等常识冲突
-        # =====================================================================
-        self.winter_keywords = ["大雪", "寒冬", "冰雪", "snow", "winter", "freezing", "cold"]
-        self.summer_keywords = ["炎热", "酷暑", "短袖", "summer", "hot", "scorching"]
-        
-        # =====================================================================
-        # 数量/事实关键词库 (Quantity/Fact Keywords)
-        # 用于检测: 图(空旷) vs 文(人山人海) 等事实冲突
-        # =====================================================================
-        self.crowded_keywords = [
-            "人山人海", "座无虚席", "人满为患", "拥挤", "人潮涌动", "熙熙攘攘",
-            "crowded", "packed", "full house"
-        ]
-        self.empty_keywords = [
-            "空无一人", "空荡荡", "无人", "冷清", "空旷",
-            "empty", "deserted", "nobody"
-        ]
 
-        # V2.0: 状态/OCR 反义词库
-        self.state_conflicts = {
-            "closed": ["敞开", "欢迎", "open", "welcome"],
-            "sleeping": ["飞奔", "追逐", "running", "active"],
-            "empty": ["丰盛", "满", "拥挤", "人山人海", "full", "crowded"],
-            "red light": ["绿灯", "通行", "green light", "go"],
-            "broken": ["全新", "完美", "无瑕", "brand new", "perfect"],
-            "cracked": ["全新", "完美", "无瑕", "brand new", "perfect"],
-            "sold out": ["充足", "现货", "available", "in stock"],
-            "0-5": ["领先", "胜券在握", "winning", "leading"],
-            "handshake": ["冲突", "打架", "破裂", "conflict", "fight"],
-            "red card": ["继续", "无犯规", "合理", "continue", "no foul"]
+class LogicReasoner:
+    def __init__(self):
+        print("[Ch3-Init] Initializing Logic Reasoning Engine V3.1 (Optimization)...")
+        
+        # =================================================================
+        # 1. 基础属性词库 (扩充版)
+        # =================================================================
+        self.night_keywords = ["深夜", "凌晨", "漆黑", "晚间", "通宵", "月色", "月光", "夜幕", "夜晚", "黑夜", "伸手不见五指", "midnight", "night", "dark"]
+        self.day_keywords = ["阳光", "正午", "白天", "烈日", "上午", "下午", "中午", "清晨", "白昼", "noon", "day", "sunny", "sunlight"]
+        
+        self.storm_keywords = ["暴雨", "洪水", "台风", "积水", "雷电", "狂风", "大雨", "storm", "rain", "flood"]
+        self.snow_keywords = ["大雪", "暴雪", "寒冬", "冰雪", "雪花", "snow", "blizzard", "winter"]
+        self.sunny_keywords = ["晴朗", "阳光", "蓝天", "无云", "烈日", "sunny", "clear"]
+        self.summer_keywords = ["酷暑", "炎热", "夏天", "高温", "summer", "hot", "heat"]
+
+        self.crowded_keywords = ["人山人海", "座无虚席", "人满为患", "拥挤", "人潮", "熙熙攘攘", "人头攒动", "火爆", "车辆很多", "full", "crowded", "packed", "busy"]
+        self.empty_keywords = ["空无一人", "空荡荡", "无人", "冷清", "空旷", "empty", "deserted", "no people", "no one", "0人"]
+
+        # =================================================================
+        # 2. 实体/地标冲突映射表 (Type 4 Entity)
+        # =================================================================
+        self.entity_conflicts = {
+            # 地标建筑
+            "tokyo tower": ["eiffel", "埃菲尔", "paris", "巴黎"],
+            "eiffel tower": ["tokyo tower", "东京塔", "japan", "日本"],
+            "canton tower": ["skytree", "晴空塔", "japan", "日本", "triangle", "三角形"],
+            "tower bridge": ["london bridge", "伦敦大桥"], 
+            "london bridge": ["tower bridge", "塔桥"],
+            "oriental pearl": ["cctv", "北京", "needle", "针状"],
+            "capitol": ["white house", "白宫", "flat roof"],
+            "white house": ["capitol", "国会", "dome", "圆顶"],
+            "statue of liberty": ["las vegas", "赌城"] if "las vegas" else [],
+            "daxing airport": ["mars", "火星", "concept", "概念"],
+            "25 de abril bridge": ["golden gate", "金门"],
+            
+            # 文化/OCR
+            "chinese": ["japanese", "日文", "京都", "tokyo"],
+            "simplified chinese": ["japanese", "日文"],
+        }
+        
+        # 2.1 通用场景冲突 (V3.1 新增)
+        self.location_mismatches = {
+            "forest": ["street", "city", "building", "街道", "城市", "楼房"],
+            "library": ["street", "outdoor", "park", "街道", "户外", "公园"],
+            "indoor": ["street", "forest", "mountain", "街道", "森林", "山顶"],
+            "street": ["indoor", "room", "hall", "室内", "房间", "大厅"],
+            "mountain": ["room", "indoor", "flat", "房间", "室内", "平原"]
         }
 
-        # V2.0: Topic/双关检测关键词
-        self.finance_kws = ["a股", "牛市", "熊市", "股市", "大盘", "指数", "黑天鹅事件"]
-        self.crash_kws = ["暴跌", "崩盘", "价格", "泡沫破裂", "资产"]
-        
-        self.model_loaded = False  # 标记模型是否已加载
+        # =================================================================
+        # 3. 状态与事实冲突映射表 (Type 3 Fact / X Series)
+        # =================================================================
+        self.fact_conflicts = {
+            "closed": ["敞开", "欢迎", "open"],
+            "sleeping": ["飞奔", "追逐", "run", "active"],
+            "empty": self.crowded_keywords + ["many cars", "several people", "好几个人", "很多车"],
+            "crowded": self.empty_keywords,
+            "withered": ["fresh", "spring", "生机", "春意", "盎然", "翠绿"],
+            "barren": ["harvest", "golden", "lush", "forest", "丰收", "茂密"],
+            "dirty": ["clean", "sanitary", "整洁", "卫生", "一尘不染"],
+            "red light": ["绿灯", "通行", "green", "go"],
+            "no smoking": ["吸烟区", "smoking area"],
+            "broken": ["全新", "完美", "无瑕", "brand new"],
+            "cracked": ["全新", "完美"],
+            "sold out": ["充足", "现货", "available"],
+            "0-5": ["领先", "胜券在握", "winning"],
+        }
+
+        # =================================================================
+        # 4. 双关语/话题冲突 (Type 5 Polysemy)
+        # =================================================================
+        self.topic_conflicts = {
+            "animal": ["a股", "牛市", "熊市", "股市", "大盘", "指数", "黑天鹅事件", "finance", "stock", "market"],
+            "living animal": ["a股", "牛市", "熊市", "股市", "大盘", "指数", "黑天鹅事件"],
+            "sports": ["暴跌", "崩盘", "价格", "泡沫", "资产", "跳水", "下挫", "跌停", "economic"],
+            "object": ["暴跌", "崩盘", "价格", "泡沫", "资产", "evaporate", "蒸发"],
+            "soap bubble": ["暴跌", "崩盘", "价格", "泡沫", "资产", "房产"],
+            "nature": ["crypto", "blockchain", "industry", "recession", "裁员", "矿机", "行业寒冬"], 
+            # 增加 plant 别名
+            "vegetable": ["investor", "stock", "散户", "追涨杀跌", "收割", "韭菜"],
+            "plant": ["investor", "stock", "散户", "追涨杀跌", "收割", "韭菜"]
+        }
 
     def _vlm_captioning_mock(self, image_path, meta_data):
-        """
-        [模拟] VLM 的看图说话功能
-        利用 Excel 里的 Meta 数据来'伪装'成 VLM 的视觉感知输出
-        
-        Args:
-            image_path (str): 图片路径
-            meta_data (dict): Excel 元数据
-        
-        Returns:
-            dict: 结构化的视觉描述
-        
-        对应 Excel 字段:
-            - Meta_Time: Day / Night
-            - Meta_Weather: Sunny / Rain / Snow / Cloudy
-            - Meta_Location: 地点名词 (Paris, Street...)
-            - Meta_Fact: 事实状态 (Empty, Crowded...)
-            - Meta_Object: 关键物体 (Car, Fire...)
-        """
-        # 从 Excel 元数据中获取真实信息，如果为空则默认为 Unknown
-        time_info = str(meta_data.get('Meta_Time', 'Unknown')).strip()
-        weather_info = str(meta_data.get('Meta_Weather', 'Unknown')).strip()
-        location_info = str(meta_data.get('Meta_Location', 'Unknown')).strip()
-        fact_info = str(meta_data.get('Meta_Fact', 'Unknown')).strip()
-        object_info = str(meta_data.get('Meta_Object', 'Unknown')).strip()
-        topic_info = str(meta_data.get('Meta_Topic', 'Unknown')).strip()
-        
-        # 构造结构化的视觉描述，模拟 VLM 的输出格式
-        vlm_caption = {
-            "Time": time_info,        # e.g., "Day", "Night"
-            "Weather": weather_info,  # e.g., "Sunny", "Rain"
-            "Location": location_info, # e.g., "Beach", "Street"
-            "Fact": fact_info,        # e.g., "Noon", "Crowded"
-            "Objects": object_info,   # e.g., "Eiffel Tower", "Car"
-            "Topic": topic_info       # e.g., "Animal", "Sports"
+        """模拟 VLM 输出"""
+        # 注意：这里强转 str 并 strip，防止 Excel 里的 None 或数字格式干扰
+        return {
+            "Time": str(meta_data.get('Meta_Time', 'Unknown')).strip(),
+            "Weather": str(meta_data.get('Meta_Weather', 'Unknown')).strip(),
+            "Location": str(meta_data.get('Meta_Location', 'Unknown')).strip(),
+            "Fact": str(meta_data.get('Meta_Fact', 'Unknown')).strip(),
+            "Objects": str(meta_data.get('Meta_Object', 'Unknown')).strip(),
+            "Topic": str(meta_data.get('Meta_Topic', 'Unknown')).strip()
         }
-        return vlm_caption
-
-    def _call_vlm_api(self, image_path, prompt):
-        """
-        [预留接口] 调用真实 VLM API
-        
-        TODO: 接入 Moondream / LLaVA 等 VLM 模型
-        
-        Args:
-            image_path (str): 图片路径
-            prompt (str): VLM 提示词
-        
-        Returns:
-            str: VLM 生成的图片描述
-        """
-        # TODO: 实现真实 VLM 调用
-        # from transformers import AutoModelForVision2Seq, AutoProcessor
-        # processor = AutoProcessor.from_pretrained("vikhyatk/moondream2")
-        # model = AutoModelForVision2Seq.from_pretrained("vikhyatk/moondream2")
-        # image = Image.open(image_path)
-        # inputs = processor(images=image, text=prompt, return_tensors="pt")
-        # outputs = model.generate(**inputs)
-        # caption = processor.decode(outputs[0], skip_special_tokens=True)
-        # return caption
-        pass
 
     def reasoning(self, image_path, text, meta_data):
-        """
-        执行逻辑推理
-        
-        Args:
-            image_path (str): 图片路径 (e.g., "./data/images/real_noon.jpg")
-            text (str): 新闻文本
-            meta_data (dict): Excel 中的元数据 (Ground Truth / Oracle)
-            
-        Returns:
-            is_conflict (bool): 是否冲突，对应 GT_Ch3_Logic
-                                True = 有冲突(1), False = 无冲突(0)
-            reason (str): 推理过程描述
-        
-        对应 Excel 字段:
-            - 输入: Image_Path (C列), Text_Content (D列)
-            - 验证: GT_Ch3_Logic (H列), 1=有冲突, 0=无冲突
-            - 分类: Sample_Type (B列), Logic_Trap 类型需重点检测
-        """
-        file_name = os.path.basename(image_path)
-        print(f"[Ch3-Analysis] Processing: {file_name}")
-        
-        # 1. [Vision Step] 视觉理解 (通过 Mock 获取)
         visual_facts = self._vlm_captioning_mock(image_path, meta_data)
-        print(f"[Ch3-Analysis] VLM Observation: {visual_facts}")
-
-        # 2. [Reasoning Step] 逻辑比对
-        return self._mock_reasoning(visual_facts, text, image_path)
-
-    def _mock_reasoning(self, visual_facts, text, image_path=""):
-        """
-        Mock 推理逻辑
-        基于规则的逻辑冲突检测
+        conflict = False
+        reason = "[CONSISTENT] Logic check passed"
         
-        【与 Channel 2 的关键区分】
-        Type 4 样本设计原则: "骗过 Ch2, 被 Ch3 抓获"
-          - Ch2 (CLIP) 只看主题: 图是塔, 文说塔 -> 高分通过
-          - Ch3 (Logic) 看细节: 图是巴黎塔, 文说东京塔 -> 冲突报警
-        
-        对应 Sample_Type = "Logic_Trap" 的检测:
-          - ID=041: 时间冲突 (图白天, 文深夜)
-          - ID=042: 天气冲突 (图晴天, 文暴雨)
-        
-        命名规范:
-          - logic_001.jpg ~ logic_025.jpg (Logic_Trap 样本)
-        
-        检测规则 (按 Type 4 SOP):
-          A. 时间陷阱 (Time Conflict) - 8张
-          B. 天气陷阱 (Weather Conflict) - 7张
-          C. 地标/实体错位 (Entity Mismatch) - 5张
-          D. 数量/事实冲突 (Fact Conflict) - 5张
-          E. 显性触发词 (Manual Trigger)
-        """
-        conflict_detected = False
-        reason = "[CONSISTENT] Visual evidence aligns with text description"
-
-        img_time = visual_facts.get("Time", "Unknown")
-        img_weather = visual_facts.get("Weather", "Unknown")
-        img_location = visual_facts.get("Location", "Unknown")
-        img_fact = visual_facts.get("Fact", "Unknown")
-        img_objects = visual_facts.get("Objects", "Unknown")
-        img_topic = visual_facts.get("Topic", "Unknown")
-
-        # 归一化，确保大小写/空格不影响匹配
         text_norm = str(text).lower()
-        img_time_norm = str(img_time).lower()
-        img_weather_norm = str(img_weather).lower()
-        img_location_norm = str(img_location).lower()
-        img_fact_norm = str(img_fact).lower()
-        img_objects_norm = str(img_objects).lower()
-        img_topic_norm = str(img_topic).lower()
         
-        # 获取文件名用于额外匹配
-        file_name = os.path.basename(image_path).lower() if image_path else ""
+        img_time = visual_facts["Time"]
+        img_weather = visual_facts["Weather"].lower()
+        img_loc = visual_facts["Location"].lower()
+        img_fact = visual_facts["Fact"].lower()
+        img_obj = visual_facts["Objects"].lower()
+        img_topic = visual_facts["Topic"].lower()
 
-        # =================================================================
-        # Rule A: 时间陷阱 (Time Conflict) - 8张
-        # 强烈的视觉光影冲突
-        # logic_001: 正午故宫 + "深夜月光"
-        # logic_002: 纽约夜景 + "今天上午"
-        # =================================================================
-        if img_time_norm == "day":
-            matched_kw = next((kw for kw in self.night_keywords if kw in text_norm), None)
-            if matched_kw:
-                conflict_detected = True
-                reason = f"[CONFLICT] Temporal: Image shows '{img_time}' (day) vs Text mentions '{matched_kw}'"
-        elif img_time_norm == "night":
-            matched_kw = next((kw for kw in self.day_keywords if kw in text_norm), None)
-            if matched_kw:
-                conflict_detected = True
-                reason = f"[CONFLICT] Temporal: Image shows '{img_time}' (night) vs Text mentions '{matched_kw}'"
+        # -----------------------------------------------------------
+        # Logic 1: Time
+        # -----------------------------------------------------------
+        if img_time == "Day" and any(k in text_norm for k in self.night_keywords):
+            conflict, reason = True, f"[CONFLICT] Time: Visual[Day] vs Text[Night]"
+        elif img_time == "Night" and any(k in text_norm for k in self.day_keywords):
+            conflict, reason = True, f"[CONFLICT] Time: Visual[Night] vs Text[Day]"
 
-        # =================================================================
-        # Rule B: 天气陷阱 (Weather Conflict) - 7张
-        # 氛围与环境冲突
-        # logic_003: 阳光海滩 + "台风狂风暴雨"
-        # logic_004: 漫天大雪 + "炎热夏天"
-        # =================================================================
-        if not conflict_detected:
-            sunny_scene = any(kw in img_weather_norm for kw in ["sunny", "clear", "晴"])
-            storm_hit = next((kw for kw in self.storm_keywords if kw.lower() in text_norm), None)
-            snow_hit = next((kw for kw in self.snow_keywords if kw.lower() in text_norm), None)
-            summer_hit = next((kw for kw in self.summer_keywords if kw.lower() in text_norm), None)
-            sunny_hit = next((kw for kw in self.sunny_keywords if kw.lower() in text_norm), None)
+        # -----------------------------------------------------------
+        # Logic 2: Weather (Refined)
+        # -----------------------------------------------------------
+        if not conflict:
+            if "sunny" in img_weather or "clear" in img_weather:
+                if any(k in text_norm for k in self.storm_keywords + self.snow_keywords + ["rain", "雨"]):
+                    conflict, reason = True, f"[CONFLICT] Weather: Visual[Sunny] vs Text[Bad Weather]"
+            elif "snow" in img_weather:
+                # Snow vs Rain (V3.1 Fix)
+                if any(k in text_norm for k in self.summer_keywords + self.sunny_keywords + ["heat", "hot", "rain", "雨"]):
+                    conflict, reason = True, f"[CONFLICT] Weather: Visual[Snow] vs Text[Summer/Hot/Rain]"
+            elif "rain" in img_weather:
+                if any(k in text_norm for k in self.sunny_keywords + ["dry", "干燥"]):
+                    conflict, reason = True, f"[CONFLICT] Weather: Visual[Rain] vs Text[Sunny/Dry]"
 
-            if sunny_scene and storm_hit:
-                conflict_detected = True
-                reason = f"[CONFLICT] Weather: Image '{img_weather}' (sunny/clear) vs Text '{storm_hit}'"
-            if not conflict_detected and sunny_scene and snow_hit:
-                conflict_detected = True
-                reason = f"[CONFLICT] Weather: Image '{img_weather}' (sunny) vs Text '{snow_hit}'"
-
-            snow_scene = any(kw in img_weather_norm for kw in ["snow", "雪", "winter"])
-            if not conflict_detected and snow_scene and summer_hit:
-                conflict_detected = True
-                reason = f"[CONFLICT] Weather: Image '{img_weather}' (snow) vs Text '{summer_hit}'"
-
-            rain_scene = any(kw in img_weather_norm for kw in ["rain", "雨", "storm"])
-            if not conflict_detected and rain_scene and sunny_hit:
-                conflict_detected = True
-                reason = f"[CONFLICT] Weather: Image '{img_weather}' (rain) vs Text '{sunny_hit}'"
-
-        # =================================================================
-        # Rule C: 地标/实体错位 (Entity Mismatch) - 5张
-        # "看起来很像，其实不是"
-        # logic_005: 埃菲尔铁塔 + "东京塔"
-        # logic_006: 悉尼歌剧院 + "北京"
-        # =================================================================
-        if not conflict_detected:
-            # C1: 巴黎地标 vs 其他城市
-            paris_landmarks = ["eiffel tower", "埃菲尔铁塔", "巴黎", "paris"]
-            wrong_cities_for_paris = ["tokyo", "东京", "london", "伦敦", "beijing", "北京", "new york", "纽约"]
-
-            if any(lm in img_objects_norm or lm in img_location_norm for lm in paris_landmarks):
-                matched_city = next((loc for loc in wrong_cities_for_paris if loc in text_norm), None)
-                if matched_city:
-                    conflict_detected = True
-                    reason = f"[CONFLICT] Geolocation: Image shows Paris/Eiffel Tower vs Text '{matched_city}'"
+        # -----------------------------------------------------------
+        # Logic 3: Entity / Landmark / Location
+        # -----------------------------------------------------------
+        if not conflict:
+            # 3.1 具体实体
+            for entity_key, conflict_words in self.entity_conflicts.items():
+                if entity_key in img_obj or entity_key in img_loc or entity_key in img_fact:
+                    matched = next((w for w in conflict_words if w in text_norm), None)
+                    if matched:
+                        if entity_key == "tower bridge" and "london bridge" in text_norm:
+                            if "tower" not in text_norm and "塔" not in text_norm:
+                                conflict, reason = True, f"[CONFLICT] Entity: Visual[{entity_key}] vs Text[{matched}]"
+                        else:
+                            conflict, reason = True, f"[CONFLICT] Entity: Visual[{entity_key}] vs Text[{matched}]"
+                        break
             
-            # C2: 东京地标 vs 其他城市
-            tokyo_landmarks = ["tokyo tower", "东京塔", "tokyo", "东京"]
-            wrong_cities_for_tokyo = ["paris", "巴黎", "eiffel", "埃菲尔", "london", "伦敦", "shanghai", "上海"]
+            # 3.2 拉斯维加斯修正 (V3.1 Fix: 中文关键词)
+            if not conflict and "las vegas" in img_loc:
+                 if any(w in text_norm for w in ["new york", "ocean", "harbor", "纽约", "海港", "大西洋"]):
+                    conflict, reason = True, f"[CONFLICT] Location: Visual[Las Vegas] vs Text[New York/Ocean]"
 
-            if not conflict_detected and any(lm in img_objects_norm or lm in img_location_norm for lm in tokyo_landmarks):
-                matched_city = next((loc for loc in wrong_cities_for_tokyo if loc in text_norm), None)
-                if matched_city:
-                    conflict_detected = True
-                    reason = f"[CONFLICT] Geolocation: Image shows Tokyo vs Text '{matched_city}'"
-            
-            # C3: 上海地标 vs 其他城市
-            shanghai_landmarks = ["东方明珠", "陆家嘴", "shanghai", "上海"]
-            wrong_cities_for_shanghai = ["tokyo", "东京", "beijing", "北京", "hong kong", "香港"]
+            # 3.3 通用位置修正 (V3.1 Fix: Forest vs Street)
+            if not conflict:
+                for loc_key, mismatch_list in self.location_mismatches.items():
+                    if loc_key in img_loc or loc_key in img_obj: # e.g. Image has 'Forest'
+                         matched_loc = next((w for w in mismatch_list if w in text_norm), None)
+                         if matched_loc:
+                             conflict, reason = True, f"[CONFLICT] Location: Visual[{loc_key}] vs Text[{matched_loc}]"
+                             break
 
-            if not conflict_detected and any(lm in img_objects_norm or lm in img_location_norm for lm in shanghai_landmarks):
-                matched_city = next((loc for loc in wrong_cities_for_shanghai if loc in text_norm), None)
-                if matched_city:
-                    conflict_detected = True
-                    reason = f"[CONFLICT] Geolocation: Image shows Shanghai vs Text '{matched_city}'"
-            
-            # C4: 悉尼地标 vs 其他城市
-            sydney_landmarks = ["sydney opera house", "悉尼歌剧院", "sydney", "悉尼"]
-            wrong_cities_for_sydney = ["beijing", "北京", "tokyo", "东京", "london", "伦敦"]
-
-            if not conflict_detected and any(lm in img_objects_norm or lm in img_location_norm for lm in sydney_landmarks):
-                matched_city = next((loc for loc in wrong_cities_for_sydney if loc in text_norm), None)
-                if matched_city:
-                    conflict_detected = True
-                    reason = f"[CONFLICT] Geolocation: Image shows Sydney vs Text '{matched_city}'"
-            
-            # C5: 伦敦塔桥 vs 金门大桥
-            london_bridge = ["london bridge", "tower bridge", "伦敦塔桥", "伦敦桥"]
-            golden_gate = ["golden gate", "金门大桥", "san francisco", "旧金山"]
-
-            if not conflict_detected and any(lm in img_objects_norm or lm in img_location_norm for lm in london_bridge):
-                matched_city = next((loc for loc in golden_gate if loc in text_norm), None)
-                if matched_city:
-                    conflict_detected = True
-                    reason = f"[CONFLICT] Geolocation: Image shows London Bridge vs Text '{matched_city}'"
-
-        # =================================================================
-        # Rule D: 数量/事实冲突 (Fact Conflict) - 5张
-        # 明显的视觉事实矛盾
-        # 图: 空荡荡的会议室 + 文: "座无虚席，人山人海"
-        # =================================================================
-        if not conflict_detected:
-            # D1: 空旷场景 vs 拥挤描述
-            empty_scene = any(kw.lower() in img_fact_norm for kw in ["empty", "空", "no people", "无人", "deserted"])
-            crowded_hit = next((kw for kw in self.crowded_keywords if kw.lower() in text_norm), None)
-            if empty_scene and crowded_hit:
-                conflict_detected = True
-                reason = f"[CONFLICT] Fact: Image '{img_fact}' (empty) vs Text '{crowded_hit}'"
-
-            crowded_scene = any(kw.lower() in img_fact_norm for kw in ["crowded", "拥挤", "人多", "many people"])
-            empty_hit = next((kw for kw in self.empty_keywords if kw.lower() in text_norm), None)
-            if not conflict_detected and crowded_scene and empty_hit:
-                conflict_detected = True
-                reason = f"[CONFLICT] Fact: Image '{img_fact}' (crowded) vs Text '{empty_hit}'"
-
-        # =================================================================
-        # Rule E: 显性逻辑谬误触发词 (Manual Trigger for Demo)
-        # 在演示时，如果文本中包含特定词，强制触发报警
-        # =================================================================
-        if not conflict_detected:
-            trigger_keywords = ["逻辑错误", "明显矛盾", "logic_trap", "conflict_test"]
-            matched_kw = next((kw for kw in trigger_keywords if kw in text_norm), None)
-            if matched_kw:
-                conflict_detected = True
-                reason = f"[CONFLICT] Manual Trigger: '{matched_kw}' detected"
-
-        # =================================================================
-        # Rule G: 状态/OCR 冲突 (V2.0 新增)
-        # =================================================================
-        if not conflict_detected:
-            for state_key, anti_keywords in self.state_conflicts.items():
-                if state_key in img_fact_norm or state_key in img_objects_norm:
-                    matched_anti = next((ak for ak in anti_keywords if ak.lower() in text_norm), None)
-                    if matched_anti:
-                        conflict_detected = True
-                        reason = f"[CONFLICT] State/OCR: Image '{state_key}' vs Text '{matched_anti}'"
+        # -----------------------------------------------------------
+        # Logic 4: Fact / State / Quantity
+        # -----------------------------------------------------------
+        if not conflict:
+            for fact_key, conflict_words in self.fact_conflicts.items():
+                if fact_key in img_fact or fact_key in img_obj:
+                    matched = next((w for w in conflict_words if w in text_norm), None)
+                    if matched:
+                        conflict, reason = True, f"[CONFLICT] Fact/State: Visual[{fact_key}] vs Text[{matched}]"
                         break
 
-        # =================================================================
-        # Rule H: Topic / 双关冲突 (V2.0 新增)
-        # =================================================================
-        if not conflict_detected:
-            if img_topic_norm in ["animal", "living animal", "动物", "生物"]:
-                matched_finance = next((kw for kw in self.finance_kws if kw in text_norm), None)
-                if matched_finance:
-                    conflict_detected = True
-                    reason = f"[CONFLICT] Polysemy: Image real animal vs Text finance '{matched_finance}'"
-            elif img_topic_norm in ["sports", "object", "soap bubble", "体育", "物体", "泡泡"]:
-                matched_crash = next((kw for kw in self.crash_kws if kw in text_norm), None)
-                if matched_crash:
-                    conflict_detected = True
-                    reason = f"[CONFLICT] Polysemy: Image physical object vs Text economic '{matched_crash}'"
-        
-        # =================================================================
-        # Rule F: 文件名前缀检测 (Naming Convention)
-        # 如果文件名以 logic_ 开头，增加检测敏感度
-        # =================================================================
-        if not conflict_detected and file_name.startswith("logic_"):
-            # logic_ 前缀的文件应该触发冲突检测
-            # 这里作为兜底检测，实际应该通过上述规则捕获
-            print(f"[Ch3-Warning] File '{file_name}' has logic_ prefix but no conflict detected. Check Excel Meta fields.")
+        # -----------------------------------------------------------
+        # Logic 5: Polysemy (Refined)
+        # -----------------------------------------------------------
+        if not conflict:
+            # 检查 Topic, Fact, Object 字段
+            check_source = f"{img_topic} {img_fact} {img_obj}"
+            
+            for topic_key, conflict_words in self.topic_conflicts.items():
+                if topic_key in check_source:
+                    matched = next((w for w in conflict_words if w in text_norm), None)
+                    if matched:
+                        conflict, reason = True, f"[CONFLICT] Polysemy: Visual[{topic_key}] vs Text[{matched}]"
+                        break
 
-        # -----------------------------------------------------------------
-        # 返回结果
-        # -----------------------------------------------------------------
-        if conflict_detected:
-            print(f"[Ch3-Result] Status=Conflict, Reason={reason}")
-        else:
-            print(f"[Ch3-Result] Status=Consistent")
-        
-        return conflict_detected, reason
+        return conflict, reason
 
-
-# ============================================================================
-# 单例模式导出
-# ============================================================================
+# 导出接口
 reasoner = LogicReasoner()
-
-
 def check_logic(image_path, text, meta_data):
-    """
-    外部调用接口 (标准函数)
-    供 main.py 或其他模块调用
-    
-    Args:
-        image_path (str): 图片路径
-        text (str): 新闻文本
-        meta_data (dict): Excel 元数据字典，需包含:
-            - Meta_Time: Day / Night
-            - Meta_Weather: Sunny / Rain / Snow / Cloudy
-            - Meta_Location: 地点名词
-            - Meta_Fact: 事实状态
-            - Meta_Object: 关键物体
-    
-    Returns:
-        tuple: (is_conflict, reason)
-            - is_conflict (bool): True=有冲突, False=无冲突
-            - reason (str): 推理证据
-    
-    注意:
-        - 返回的 is_conflict 直接对应 GT_Ch3_Logic
-        - True = 1 (有冲突), False = 0 (无冲突)
-    
-    使用示例:
-        from channel_3_logic_rules.reasoner import check_logic
-        meta = {"Meta_Time": "Day", "Meta_Weather": "Sunny", ...}
-        is_conflict, reason = check_logic("data/images/real_noon.jpg", 
-                                          "深夜的街道格外宁静", meta)
-        P3 = 0.95 if is_conflict else 0.05
-        print(f"Conflict={is_conflict}, P3={P3}, Reason: {reason}")
-    """
     return reasoner.reasoning(image_path, text, meta_data)
-
 
 def check_logic_pipeline(image_path, text, meta_data):
     """
