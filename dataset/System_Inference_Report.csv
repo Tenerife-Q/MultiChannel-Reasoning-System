@@ -1,5 +1,0 @@
-ID,Type,Ch1_Alarm,Ch2_Alarm,Ch3_Alarm,Final_Verdict,Intercepted_By
-1,Real,0,0,0,Real,Pass
-11,Tamper_AIGC,1,0,0,Fake,Channel 1 (Physics)
-31,Mismatch,0,1,0,Fake,Channel 2 (Semantic)
-41,Logic_Trap,0,0,1,Fake,Channel 3 (Logic)

@@ -1,0 +1,16 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Install ModelScope",
+			"type": "shell",
+			"command": "pip install",
+			"args": [
+				"modelscope"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "install"
+		}
+	]
+}

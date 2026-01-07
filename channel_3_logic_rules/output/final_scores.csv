@@ -1,0 +1,63 @@
+Image_Path,Logic_Score,Raw_Output,Target,Error
+data/images/TA_001.jpg,0.1,9,,False
+data/images/TA_002.jpg,1.0,0,1.0,False
+data/images/TA_003.jpg,0.8,2,1.0,False
+data/images/TA_004.jpg,0.3,7,,False
+data/images/TA_005.jpg,0.3,7,,False
+data/images/TP_001.jpg,1.0,0,,False
+data/images/TP_002.jpg,0.2,8,,False
+data/images/TP_003.jpg,1.0,0,,False
+data/images/TP_004.jpg,0.5,5,,False
+data/images/TP_005.jpg,0.7,3,,False
+data/images/TP_006.jpg,1.0,0,,False
+data/images/TP_007.jpg,0.1,9,,False
+data/images/TP_008.jpg,0.1,9,,False
+data/images/M_panda_001.jpg,1.0,0,,False
+data/images/M_forestfire_002.jpg,1.0,0,,False
+data/images/M_park_003.jpg,1.0,0,,False
+data/images/M_spaceman004.jpg,1.0,0,,False
+data/images/M_dessert005.jpg,0.5,Image Not Found,,True
+data/images/M_jet006.jpg,1.0,0,,False
+data/images/R_xizang_001.jpg,0.5,Image Not Found,,True
+data/images/R_work_002.jpg,0.5,Image Not Found,,True
+data/images/R_eason_003.jpg,0.5,Image Not Found,,True
+data/images/R_changcheng_004.jpg,0.5,Image Not Found,,True
+data/images/R_light_005.jpg,0.5,Image Not Found,,True
+data/images/R_fireshow_006.jpg,0.5,Image Not Found,,True
+data/images/R_mall_007.jpg,0.5,Image Not Found,,True
+data/images/R_ice_008.jpg,0.5,Image Not Found,,True
+data/images/R_cunchao_009.jpg,0.5,Image Not Found,,True
+data/images/R_sheep_010.jpg,0.5,Image Not Found,,True
+data/images/LW_001.jpg,1.0,0,1.0,False
+data/images/LW_002.jpg,0.1,9,1.0,False
+data/images/LW_003.jpg,1.0,0,1.0,False
+data/images/LW_004.jpg,0.1,9,1.0,False
+data/images/LW_005.jpg,0.1,9,1.0,False
+data/images/LW_006.jpg,0.1,9,1.0,False
+data/images/time/LT_001.jpg,0.1,9,1.0,False
+data/images/time/LT_002.jpg,0.9,1,1.0,False
+data/images/time/LT_003.jpg,1.0,0,1.0,False
+data/images/quantity/LN_001.jpg,0.1,9,1.0,False
+data/images/quantity/LN_002.jpg,1.0,0,1.0,False
+data/images/quantity/LN_003.jpg,0.1,9,1.0,False
+data/images/quantity/LN_004.jpg,0.1,9,1.0,False
+data/images/quantity/LN_005.jpg,1.0,0,1.0,False
+data/images/quantity/LN_006.jpg,0.1,9,1.0,False
+data/images/quantity/LN_007.jpg,1.0,0,1.0,False
+data/images/quantity/LN_008.jpg,1.0,0,1.0,False
+data/images/LL_001.jpg,0.1,9,1.0,False
+data/images/LL_002.jpg,0.1,9,1.0,False
+data/images/LL_003.jpg,0.2,8,1.0,False
+data/images/LL_004.jpg,0.1,9,1.0,False
+data/images/LL_005.jpg,0.1,9,1.0,False
+data/images/LL_006.jpg,0.2,8,1.0,False
+data/images/LL_007.jpg,0.1,9,1.0,False
+data/images/LL_008.jpg,0.1,9,1.0,False
+data/images/LL_009.jpg,0.1,9,1.0,False
+data/images/LT_001.jpg,0.2,8,1.0,False
+data/images/LT_002.jpg,0.8,2,1.0,False
+data/images/LT_003.jpg,0.1,9,1.0,False
+data/images/LT_004.jpg,0.2,8,1.0,False
+data/images/LT_005.jpg,0.1,9,1.0,False
+data/images/LT_006.jpg,1.0,0,1.0,False
+data/images/LT_007.jpg,1.0,0,1.0,False

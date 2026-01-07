@@ -231,3 +231,18 @@ Thumbs.db
 # 4. 忽略本地环境配置
 .env
 channel_1_forgery_detection/第一通道拟.docx
+
+# --- Custom Ignore Rules for MultiChannel-Reasoning-System ---
+
+# Model Weights (Large files)
+*.pth
+*.safetensors
+*.ckpt
+*.pt
+*.bin
+*.h5
+
+# Specific Weight Directories
+channel_1_forgery_detection/weight/
+MVSS-Net/ckpt/
+

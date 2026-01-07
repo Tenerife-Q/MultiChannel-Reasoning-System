@@ -1,246 +1,235 @@
-"""
-================================================================================
-Channel 1: Omni-Forgery Detection (全谱系篡改检测)
-文件名: detector.py
-定位: 整个系统的"物理防线"
-
-================================================================================
-【核心任务】
-只要这张图的像素被动过手脚（不管是人P的，还是AI涂的），都要把它抓出来。
-检验对象: 图片的微观痕迹（噪声分布、边缘特性），而非图片内容。
-
-【检测目标 - 三种篡改类型】
-1. 拼接/复制 (Splicing/Copy-Move)
-   - 传统手段：把A图的人扣到B图，或把云彩复制一份
-   - 特征：边缘像素突变
-
-2. AI消除/重绘 (AI Inpainting)
-   - 现代手段：用手机"消除笔"把路人涂掉，或用PS"创成式填充"补背景
-   - 特征：噪声不匹配，AI生成区域过于"平滑"或带有特定棋盘格纹理
-
-3. 压缩伪影 (Compression Artifacts)
-   - 修改过的区域，其JPEG压缩痕迹与原图不同
-
-================================================================================
-【I/O 接口规范】
-================================================================================
-输入 (Input):
-  - image_path (str): 图片在本地的路径
-  - 示例: "./data/images/aigc_eraser_001.jpg"
-
-输出 (Output):
-  - score (float): 篡改置信度 P1，范围 0.0 ~ 1.0
-    对应 Excel 字段: GT_Ch1_Tamper (1=有篡改, 0=无篡改)
-  - message (str): 诊断结果描述
-
-【与Excel字段的对应关系】
-  - Sample_Type = "Tamper_PS"   -> 检测传统PS篡改 (Splicing/Clone)
-  - Sample_Type = "Tamper_AIGC" -> 检测AI消除/重绘 (Inpainting)
-  - Sample_Type = "Real"        -> 应输出低分 (无篡改)
-  - Tamper_Method 字段记录具体手段: MagicEraser, Photoshop_Splicing 等
-
-================================================================================
-【技术选型】
-推荐模型 (二选一):
-  1. MVSS-Net++ (首选) - 对噪声和边缘非常敏感，能抓AI Inpainting
-  2. MantraNet (备选) - 经典通用检测器，稳定性好
-
-================================================================================
-"""
-
 import os
-import random
-# import torch  # TODO: 待模型集成时解开注释
+import cv2
+import numpy as np
+import torch
+from torchvision import transforms
+from models.mvssnet import get_mvss
+
+def cv2_imread(file_path):
+    """
+    Read image with non-ASCII path support.
+    """
+    try:
+        # Read file as byte array
+        img_array = np.fromfile(file_path, np.uint8)
+        # Decode the image
+        img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+        return img
+    except Exception as e:
+        print(f"Error reading image {file_path}: {e}")
+        return None
+
+def cv2_imwrite(file_path, img):
+    """
+    Write image with non-ASCII path support.
+    """
+    try:
+        # Encode image
+        retval, buf = cv2.imencode(os.path.splitext(file_path)[1], img)
+        if retval:
+            # Write key to file
+            with open(file_path, "wb") as f:
+                buf.tofile(f)
+            return True
+        return False
+    except Exception as e:
+        print(f"Error writing image {file_path}: {e}")
+        return False
 
 class ForgeryDetector:
-    """
-    通用篡改检测器
-    能同时兼容传统PS篡改和AI Inpainting篡改
-    """
-    
-    def __init__(self):
-        """
-        初始化检测器
-        任务: 加载 MVSS-Net 或 MantraNet 的预训练权重
-        路径注意: 权重文件应存放在 channel_1_forgery_detection/weights/ 目录下
-        """
-        print("[Ch1-Init] Loading Omni-Forgery Detection Model...")
-        print("[Ch1-Init] Target: MVSS-Net/MantraNet for PS + AIGC detection")
-        # TODO: 实例化模型并加载权重
-        # self.model = MVSS_Net()
-        # model_path = os.path.join(os.path.dirname(__file__), 'weights/mvss_net.pth')
-        # self.model.load_state_dict(torch.load(model_path))
-        # self.model.eval()
-        self.model_loaded = False  # 标记模型是否已加载
-
-    def detect(self, image_path):
-        """
-        统一接口: 检测图片是否被篡改 (包含PS和AI修改)
+    def __init__(self, weight_path, device=None):
+        self.device = device if device else ('cuda' if torch.cuda.is_available() else 'cpu')
+        print(f"Initializing Detector on {self.device}...")
         
+        # Initialize Model Structure
+        # MVSS-Net uses ResNet50 backbone. 
+        # We set pretrained_base=False because we will load full weights from checkpoint.
+        self.model = get_mvss(backbone='resnet50',
+                              pretrained_base=False,
+                              nclass=1,
+                              sobel=True,
+                              constrain=True,
+                              n_input=3)
+        
+        # Load Weights
+        if not os.path.exists(weight_path):
+            raise FileNotFoundError(f"Weight file not found: {weight_path}")
+            
+        print(f"Loading weights from {weight_path}...")
+        try:
+            checkpoint = torch.load(weight_path, map_location='cpu')
+            # Handle if checkpoint is wrapped in 'state_dict' or is the dict itself
+            if 'state_dict' in checkpoint:
+                self.model.load_state_dict(checkpoint['state_dict'], strict=True)
+            else:
+                self.model.load_state_dict(checkpoint, strict=True)
+        except Exception as e:
+            print(f"Error loading weights: {e}")
+            raise e
+            
+        self.model.to(self.device)
+        self.model.eval()
+        
+        # Define Transformations (Standard ImageNet Normalization)
+        self.transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])
+        ])
+        print("Detector ready.")
+
+    def preprocess(self, img_bgr, resize_size=512):
+        """
+        Preprocess image for the model.
         Args:
-            image_path (str): 图片路径 (e.g., "./data/images/aigc_eraser_001.jpg")
-        
+            img_bgr: Input image in BGR format (OpenCV default).
+            resize_size: Target size for inference.
         Returns:
-            score (float): 篡改概率 P1，对应 GT_Ch1_Tamper
-                           1.0 = 确定篡改, 0.0 = 确定真实
-            message (str): 诊断结果描述
-        
-        对应 Excel 字段:
-            - 输入: Image_Path (B列)
-            - 验证: GT_Ch1_Tamper (F列), 1=有篡改, 0=无篡改
-            - 分类: Sample_Type (B列), Tamper_PS / Tamper_AIGC / Real
+            tensor: Preprocessed tensor (1, C, H, W)
+            ori_size: (H, W) for restoring mask size.
         """
-        # 1. 路径标准化处理 (防止相对路径找不到文件)
+        if img_bgr is None:
+            raise ValueError("Image is None")
+            
+        ori_h, ori_w = img_bgr.shape[:2]
+        
+        # Resize
+        img_resized = cv2.resize(img_bgr, (resize_size, resize_size))
+        
+        # OpenCV (BGR) -> RGB
+        img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
+        
+        # Transform (ToTensor + Normalize)
+        # ToTensor converts [0, 255] -> [0.0, 1.0] and HWC -> CHW
+        img_tensor = self.transform(img_rgb)
+        
+        # Add batch dimension: (C, H, W) -> (1, C, H, W)
+        img_tensor = img_tensor.unsqueeze(0)
+        
+        return img_tensor, (ori_h, ori_w)
+
+    def detect(self, image_path, resize=512, threshold=0.5):
+        """
+        Detect forgery in an image.
+        Args:
+            image_path: Path to the image file.
+            resize: Size to resize image for model input.
+            threshold: (Optional) Threshold for binary mask, irrelevant for score calculation usually.
+        Returns:
+            score: (float) Suspicion score (0.0 - 1.0).
+            mask: (np.array) Forgery probability map (0-255 uint8), resized to original image size.
+        """
         if not os.path.exists(image_path):
-            abs_path = os.path.abspath(image_path)
-            if not os.path.exists(abs_path):
-                return 0.0, f"[ERROR] File Not Found: {image_path}"
-            image_path = abs_path
+            print(f"File not found: {image_path}")
+            return 0.0, None
 
-        file_name = os.path.basename(image_path)
-        print(f"[Ch1-Analysis] Processing: {file_name}")
-        print(f"[Ch1-Analysis] Analyzing noise distribution & edge features...")
+        # Use custom imread for non-ASCII path support
+        img = cv2_imread(image_path)
+        if img is None:
+            print(f"Could not read image: {image_path}")
+            return 0.0, None
 
-        # -----------------------------------------------------------
-        # TODO: [Phase 2] 接入真实模型推理
-        # -----------------------------------------------------------
-        # img_tensor = preprocess(image_path)
-        # with torch.no_grad():
-        #     pred_mask = self.model(img_tensor)
-        #     score = pred_mask.max().item()
-        #     # 保存 Mask 用于可视化演示
-        #     mask_path = self._save_mask(pred_mask, image_path)
-        # return score, f"Tamper probability: {score:.4f}"
-        # -----------------------------------------------------------
+        try:
+            input_tensor, ori_size = self.preprocess(img, resize_size=resize)
+            input_tensor = input_tensor.to(self.device)
 
-        # ============================================================
-        # [Phase 1] Mock Logic - 基于文件名/路径模拟检测结果
-        # 用于联调测试，真实模型接入前的演示
-        # ============================================================
-        return self._mock_detect(image_path)
+            with torch.no_grad():
+                # Forward pass
+                outputs = self.model(input_tensor)
+                
+                # MVSSNet returns (edge_out, seg_out) or similar list
+                if isinstance(outputs, (list, tuple)):
+                    seg_logit = outputs[-1] 
+                else:
+                    seg_logit = outputs
 
-    def _mock_detect(self, image_path):
-        """
-        Mock 检测逻辑
-        根据文件名关键词模拟不同的检测结果
-        
-        对应 Sample_Type 分类:
-          - Tamper_AIGC: aigc_, ai_00, inpaint, eraser, remove, magic
-          - Tamper_PS: ps_, ps_00, type2_ps, splicing, copymove, clone, tamper, fake
-          - Real: real_, 或不含上述关键词
-        
-        对应 Tamper_Method:
-          - MagicEraser, Photoshop_Splicing, Photoshop_Clone 等
-        
-        命名规范示例:
-          - ps_001.jpg, ps_002.jpg (传统PS篡改)
-          - ai_001.jpg, ai_002.jpg (AIGC消除)
-          - type2_ps_001.jpg, type2_ai_001.jpg (Type2物理篡改)
-        """
-        file_name = image_path.lower()
-        file_basename = os.path.basename(file_name)
-        
-        # -----------------------------------------------------------------
-        # Case 1: AIGC 篡改检测 (AI Inpainting/Eraser)
-        # 对应 Sample_Type = "Tamper_AIGC", GT_Ch1_Tamper = 1
-        # Tamper_Method: MagicEraser, AI_Inpaint 等
-        # -----------------------------------------------------------------
-        aigc_keywords = ["aigc", "ai_00", "type2_ai", "inpaint", "eraser", "remove", "magic", "cleanup"]
-        if any(kw in file_name for kw in aigc_keywords):
-            # 模拟高置信度检测 (0.88 ~ 0.98)
-            score = round(random.uniform(0.88, 0.98), 4)
+                # Sigmoid for probability
+                seg_prob = torch.sigmoid(seg_logit)
+                
+                # Move to CPU
+                seg_prob_np = seg_prob.squeeze().cpu().numpy() # (H, W)
+
+            # Calculate Score (Max probability in the map)
+            score = float(np.max(seg_prob_np))
+
+            # Resize Mask back to original size
+            # Convert to 0-255 for resizing
+            mask_uint8_small = (seg_prob_np * 255).astype(np.uint8)
+            mask_final = cv2.resize(mask_uint8_small, (ori_size[1], ori_size[0]))
             
-            # 细分 AIGC 篡改类型
-            if "eraser" in file_name or "remove" in file_name or "cleanup" in file_name:
-                method = "AI Object Removal (Eraser)"
-            elif "inpaint" in file_name:
-                method = "AI Inpainting (Texture Synthesis)"
-            else:
-                method = "AIGC Modification (Smooth Region Detected)"
-            
-            msg = f"[DETECTED] {method} - Noise anomaly in smooth regions"
-            print(f"[Ch1-Result] Score={score:.4f}, Type=AIGC")
-            return score, msg
-        
-        # -----------------------------------------------------------------
-        # Case 2: 传统 PS 篡改检测 (Splicing/Copy-Move/Clone)
-        # 对应 Sample_Type = "Tamper_PS", GT_Ch1_Tamper = 1
-        # Tamper_Method: Photoshop_Splicing, Photoshop_Clone 等
-        # -----------------------------------------------------------------
-        ps_keywords = ["ps_", "ps_00", "type2_ps", "splicing", "copymove", "clone", "tamper", "fake"]
-        if any(kw in file_name for kw in ps_keywords):
-            # 模拟高置信度检测 (0.85 ~ 0.96)
-            score = round(random.uniform(0.85, 0.96), 4)
-            
-            # 细分 PS 篡改类型
-            if "splicing" in file_name:
-                method = "Image Splicing (Edge discontinuity)"
-            elif "copymove" in file_name or "clone" in file_name:
-                method = "Copy-Move Forgery (Duplicated regions)"
-            else:
-                method = "Traditional PS Manipulation (Edge artifacts)"
-            
-            msg = f"[DETECTED] {method} - Edge artifacts detected"
-            print(f"[Ch1-Result] Score={score:.4f}, Type=PS")
-            return score, msg
-        
-        # -----------------------------------------------------------------
-        # Case 3: 真实图片 (无篡改)
-        # 对应 Sample_Type = "Real" 或 "Mismatch" 或 "Logic_Trap"
-        # GT_Ch1_Tamper = 0
-        # -----------------------------------------------------------------
-        # 模拟低置信度 (0.02 ~ 0.12)
-        score = round(random.uniform(0.02, 0.12), 4)
-        msg = "[CLEAN] No manipulation detected - Noise pattern consistent"
-        print(f"[Ch1-Result] Score={score:.4f}, Type=Real")
-        return score, msg
+            return score, mask_final
 
-    def _save_mask(self, mask_tensor, original_path):
-        """
-        保存篡改掩码图 (Mask)
-        白色区域表示被篡改的位置
-        
-        TODO: 真实模型接入时实现
-        """
-        # mask_dir = os.path.join(os.path.dirname(__file__), 'output_masks')
-        # os.makedirs(mask_dir, exist_ok=True)
-        # mask_filename = os.path.basename(original_path).replace('.jpg', '_mask.png')
-        # mask_path = os.path.join(mask_dir, mask_filename)
-        # save_image(mask_tensor, mask_path)
-        # return mask_path
-        pass
+        except Exception as e:
+            print(f"Inference error for {image_path}: {e}")
+            import traceback
+            traceback.print_exc()
+            return 0.0, None
 
-
-# ============================================================================
-# 单例模式导出
-# ============================================================================
-detector = ForgeryDetector()
-
-
-def detect_tamper(image_path):
-    """
-    外部调用接口 (标准函数)
-    供 main.py 或其他模块调用
+def main():
+    # Setup Paths
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # Assuming weight is in ./weight/mvssnet_casia.pth
+    weight_path = os.path.join(current_dir, "weight", "mvssnet_casia.pth")
     
-    Args:
-        image_path (str): 图片路径
+    # Input Data Directory
+    workspace_root = os.path.dirname(os.path.dirname(current_dir)) # E:\原镜
+    # Adjust logic: current_dir is E:\原镜\MultiChannel-Reasoning-System\channel_1_forgery_detection
+    workspace = os.path.dirname(current_dir) # E:\原镜\MultiChannel-Reasoning-System
     
-    Returns:
-        tuple: (score, message)
-            - score (float): 篡改概率 P1 (0.0 ~ 1.0)
-            - message (str): 诊断结果
+    data_images_dir = os.path.join(workspace, "data", "images")
+    output_dir = os.path.join(current_dir, "output")
     
-    使用示例:
-        from channel_1_forgery_detection.detector import detect_tamper
-        score, msg = detect_tamper("data/images/aigc_eraser_001.jpg")
-        print(f"P1 = {score}, Result: {msg}")
-    """
-    return detector.detect(image_path)
+    os.makedirs(output_dir, exist_ok=True)
+    
+    print("="*50)
+    print("MVSS-Net Forgery Detector")
+    print(f"Weights: {weight_path}")
+    print(f"Input:   {data_images_dir}")
+    print(f"Output:  {output_dir}")
+    print("="*50)
+    
+    detector = ForgeryDetector(weight_path)
+    
+    # Get Images
+    exts = ('.jpg', '.png', '.jpeg', '.tif', '.bmp')
+    if not os.path.exists(data_images_dir):
+        print(f"Error: Data directory not found: {data_images_dir}")
+        return
 
+    images = [f for f in os.listdir(data_images_dir) if f.lower().endswith(exts)]
+    print(f"Found {len(images)} images.")
+    
+    results = []
+    
+    for idx, img_name in enumerate(images):
+        img_path = os.path.join(data_images_dir, img_name)
+        print(f"[{idx+1}/{len(images)}] Processing {img_name}...", end='\r')
+        
+        score, mask = detector.detect(img_path)
+        
+        if mask is not None:
+            # Save Mask
+            save_name = os.path.splitext(img_name)[0] + f"_score_{score:.3f}.png"
+            output_path = os.path.join(output_dir, save_name)
+            cv2_imwrite(output_path, mask)
+            results.append((img_name, score))
+        else:
+            results.append((img_name, -1))
+            
+    print("\n\n" + "="*50)
+    print("Summary:")
+    print(f"{'Image Name':<30} | {'Score':<10} | {'Verdict'}")
+    print("-" * 55)
+    
+    TH = 0.5 
+    
+    for name, score in results:
+        verdict = "Fake" if score > TH else "Real"
+        if score == -1: verdict = "Error"
+        print(f"{name:<30} | {score:.4f}     | {verdict}")
+        
+    print("="*50)
+    print(f"Results saved to {output_dir}")
 
-def detect_tamper_pipeline(image_path):
-    """
-    Pipeline 接口 (别名)
-    兼容不同的调用方式
-    """
-    return detector.detect(image_path)
+if __name__ == "__main__":
+    main()

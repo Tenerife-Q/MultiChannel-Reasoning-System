@@ -1,6 +1,15 @@
+torch>=2.0.0
+torchvision
+transformers>=4.30.0
 pandas
+numpy
+opencv-python-headless
+pillow
+tqdm
 openpyxl
-# torch  (待解开)
-# transformers (待解开)
-# pillow (待解开)
-# clip (待解开)
+deep_translator
+einops
+accelerate
+sentencepiece
+ftfy
+regex
